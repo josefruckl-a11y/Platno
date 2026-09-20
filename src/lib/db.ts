@@ -1,8 +1,9 @@
 import Database from "better-sqlite3";
 import path from "path";
 import fs from "fs";
+import os from "os";
 
-const dataDir = path.join(process.cwd(), "data");
+const dataDir = path.join(os.tmpdir(), "platno-cache");
 if (!fs.existsSync(dataDir)) {
   fs.mkdirSync(dataDir, { recursive: true });
 }
