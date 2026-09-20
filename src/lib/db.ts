@@ -2,13 +2,34 @@ import { neon, NeonQueryFunction } from "@neondatabase/serverless";
 
 let sqlClient: NeonQueryFunction<false, false> | null = null;
 
+function findConnectionString(): string | undefined {
+  // Vercel's storage integration prefixes env var names with the store's
+  // name (e.g. "platno_DATABASE_URL") to avoid collisions, so the exact
+  // key isn't known in advance.
+  if (process.env.DATABASE_URL) return process.env.DATABASE_URL;
+  if (process.env.POSTGRES_URL) return process.env.POSTGRES_URL;
+
+  const keys = Object.keys(process.env);
+  const pooled = keys.find(
+    (k) => k.endsWith("_DATABASE_URL") && !k.includes("UNPOOLED")
+  );
+  if (pooled) return process.env[pooled];
+
+  const postgresUrl = keys.find(
+    (k) =>
+      k.endsWith("_POSTGRES_URL") &&
+      !k.includes("NON_POOLING") &&
+      !k.includes("PRISMA") &&
+      !k.includes("NO_SSL")
+  );
+  if (postgresUrl) return process.env[postgresUrl];
+
+  return undefined;
+}
+
 function getSql(): NeonQueryFunction<false, false> {
   if (!sqlClient) {
-    const url =
-      process.env.DATABASE_URL ??
-      process.env.POSTGRES_URL ??
-      process.env.DATABASE_URL_UNPOOLED ??
-      process.env.POSTGRES_URL_NON_POOLING;
+    const url = findConnectionString();
     if (!url) {
       throw new Error(
         "No database connection string found. Connect a Postgres store to this project in Vercel."
