@@ -46,7 +46,7 @@ export interface TmdbMovieDetails {
 
 export async function getMovieDetails(tmdbId: number): Promise<TmdbMovieDetails> {
   const cacheKey = `tmdb:details:${tmdbId}`;
-  const cached = cacheGet<TmdbMovieDetails>(cacheKey);
+  const cached = await cacheGet<TmdbMovieDetails>(cacheKey);
   if (cached) return cached;
 
   const url = new URL(`${TMDB_BASE}/movie/${tmdbId}`);
@@ -70,6 +70,6 @@ export async function getMovieDetails(tmdbId: number): Promise<TmdbMovieDetails>
     release_date: data.release_date,
   };
 
-  cacheSet(cacheKey, details);
+  await cacheSet(cacheKey, details);
   return details;
 }

@@ -22,7 +22,7 @@ export interface OmdbResponse {
 
 export async function getRatingsByImdbId(imdbId: string): Promise<OmdbResponse> {
   const cacheKey = `omdb:${imdbId}`;
-  const cached = cacheGet<OmdbResponse>(cacheKey);
+  const cached = await cacheGet<OmdbResponse>(cacheKey);
   if (cached) return cached;
 
   const url = new URL("https://www.omdbapi.com/");
@@ -39,6 +39,6 @@ export async function getRatingsByImdbId(imdbId: string): Promise<OmdbResponse> 
     throw new Error(data.Error ?? "OMDb returned an error");
   }
 
-  cacheSet(cacheKey, data);
+  await cacheSet(cacheKey, data);
   return data;
 }

@@ -1,44 +1,62 @@
-import Database from "better-sqlite3";
-import path from "path";
-import fs from "fs";
-import os from "os";
+import { neon, NeonQueryFunction } from "@neondatabase/serverless";
 
-const dataDir = path.join(os.tmpdir(), "platno-cache");
-if (!fs.existsSync(dataDir)) {
-  fs.mkdirSync(dataDir, { recursive: true });
+let sqlClient: NeonQueryFunction<false, false> | null = null;
+
+function getSql(): NeonQueryFunction<false, false> {
+  if (!sqlClient) {
+    const url =
+      process.env.DATABASE_URL ??
+      process.env.POSTGRES_URL ??
+      process.env.DATABASE_URL_UNPOOLED ??
+      process.env.POSTGRES_URL_NON_POOLING;
+    if (!url) {
+      throw new Error(
+        "No database connection string found. Connect a Postgres store to this project in Vercel."
+      );
+    }
+    sqlClient = neon(url);
+  }
+  return sqlClient;
 }
 
-const db = new Database(path.join(dataDir, "cache.sqlite"));
-db.pragma("journal_mode = WAL");
+let tableReady: Promise<void> | null = null;
 
-db.exec(`
-  CREATE TABLE IF NOT EXISTS cache (
-    key TEXT PRIMARY KEY,
-    value TEXT NOT NULL,
-    fetched_at INTEGER NOT NULL
-  )
-`);
+function ensureTable(): Promise<void> {
+  if (!tableReady) {
+    const sql = getSql();
+    tableReady = sql`
+      CREATE TABLE IF NOT EXISTS cache (
+        key TEXT PRIMARY KEY,
+        value TEXT NOT NULL,
+        fetched_at BIGINT NOT NULL
+      )
+    `.then(() => undefined);
+  }
+  return tableReady;
+}
 
 const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
 
-export function cacheGet<T>(key: string): T | null {
-  const row = db
-    .prepare("SELECT value, fetched_at FROM cache WHERE key = ?")
-    .get(key) as { value: string; fetched_at: number } | undefined;
+export async function cacheGet<T>(key: string): Promise<T | null> {
+  await ensureTable();
+  const sql = getSql();
+  const rows = await sql`SELECT value, fetched_at FROM cache WHERE key = ${key}`;
+  const row = rows[0] as { value: string; fetched_at: string } | undefined;
 
   if (!row) return null;
-  if (Date.now() - row.fetched_at > SEVEN_DAYS_MS) {
-    db.prepare("DELETE FROM cache WHERE key = ?").run(key);
+  if (Date.now() - Number(row.fetched_at) > SEVEN_DAYS_MS) {
+    await sql`DELETE FROM cache WHERE key = ${key}`;
     return null;
   }
   return JSON.parse(row.value) as T;
 }
 
-export function cacheSet(key: string, value: unknown): void {
-  db.prepare(
-    `INSERT INTO cache (key, value, fetched_at) VALUES (?, ?, ?)
-     ON CONFLICT(key) DO UPDATE SET value = excluded.value, fetched_at = excluded.fetched_at`
-  ).run(key, JSON.stringify(value), Date.now());
+export async function cacheSet(key: string, value: unknown): Promise<void> {
+  await ensureTable();
+  const sql = getSql();
+  await sql`
+    INSERT INTO cache (key, value, fetched_at)
+    VALUES (${key}, ${JSON.stringify(value)}, ${Date.now()})
+    ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, fetched_at = EXCLUDED.fetched_at
+  `;
 }
-
-export default db;
